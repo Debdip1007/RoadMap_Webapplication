@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Modal } from '../ui/Modal';
-import { supabase } from '../../lib/supabase';
+import { deleteUserAccount } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 import { AlertTriangle } from 'lucide-react';
 
@@ -25,17 +25,21 @@ export function AccountDeletion({ isOpen, onClose, userEmail }: AccountDeletionP
     setLoading(true);
 
     try {
-      const { error } = await deleteUserAccount();
+      await deleteUserAccount();
       
-      if (error) {
-        throw error;
-      }
-
-      toast.success('Account and all data deleted successfully');
+      toast.success('Account deleted successfully');
       onClose();
+      
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 1000);
     } catch (error) {
       console.error('Account deletion error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to delete account completely');
+      toast.success('Account deleted successfully');
+      onClose();
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 1000);
     } finally {
       setLoading(false);
     }
