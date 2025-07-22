@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
+// Email cooldown check function
+export const checkEmailCooldown = async (email: string): Promise<boolean> => {
+  const { data, error } = await supabase.rpc('is_email_in_cooldown', { check_email: email });
+  return !error && data === true;
+};
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -9,67 +15,89 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const deleteUserAccount = async () => {
   try {
-    // Always clear the session first to prevent auth errors
-    await supabase.auth.signOut();
+    // Verify user is authenticated
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
     
-    // Try to get user info, but don't fail if user doesn't exist
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    // If we have a user, try to delete their data
-    if (user) {
-      // Delete user data from custom tables
-      const { error: tasksError } = await supabase
-        .from('tasks')
-        .delete()
-        .eq('user_id', user.id);
+    if (userError || !user) {
+      return {
+        error: new Error('No authenticated user found'),
+        success: false
+      };
+    }
 
-      if (tasksError) {
-        console.error('Error deleting tasks:', tasksError);
-      }
+    // Call the database function to handle complete account deletion
+    const { data: deletionResult, error: rpcError } = await supabase
+      .rpc('delete_user_account');
 
-      const { error: goalsError } = await supabase
-        .from('weekly_goals')
-        .delete()
-        .eq('user_id', user.id);
+    if (rpcError) {
+      console.error('RPC deletion error:', rpcError);
+      return {
+        error: new Error(`Account deletion failed: ${rpcError.message}`),
+        success: false
+      };
+    }
 
-      if (goalsError) {
-        console.error('Error deleting weekly goals:', goalsError);
-      }
+    // Check if the database function reported success
+    if (!deletionResult?.success) {
+      console.error('Database deletion failed:', deletionResult);
+      return {
+        error: new Error(deletionResult?.error || 'Account deletion failed'),
+        success: false
+      };
+    }
 
-      const { error: progressError } = await supabase
-        .from('user_progress')
-        .delete()
-        .eq('user_id', user.id);
+    // Force sign out from all sessions immediately
+    await supabase.auth.signOut({ scope: 'global' });
 
-      if (progressError) {
-        console.error('Error deleting user progress:', progressError);
-      }
-
-      // Try to delete the user account using RPC function
-      const { error: rpcError } = await supabase.rpc('delete_current_user');
+    // Clear local storage and session storage
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('supabase.auth.token');
+      localStorage.clear();
+      sessionStorage.clear();
       
-      if (rpcError) {
-        console.warn('RPC function failed, user data deleted but auth account may remain:', rpcError);
+      // Clear any cached data
+      if ('caches' in window) {
+        caches.keys().then(names => {
+          names.forEach(name => {
+            caches.delete(name);
+          });
+        });
       }
     }
 
-    // Always return success since we've signed out the user
-    return { error: null };
+    console.log('Account deletion successful:', deletionResult);
+
+    return { 
+      error: null, 
+      success: true,
+      message: deletionResult.message,
+      deletedUserId: deletionResult.user_id
+    };
+
   } catch (error) {
     console.error('Account deletion error:', error);
-    // Even if there's an error, ensure user is signed out
-    try {
-      await supabase.auth.signOut();
-    } catch (signOutError) {
-      console.error('Error signing out:', signOutError);
-    }
-    // Return success to allow navigation to continue
-    return { error: null };
+    
+    // Always sign out user even if deletion fails
+    await supabase.auth.signOut({ scope: 'global' }).catch(console.error);
+    
+    return { 
+      error: error instanceof Error ? error : new Error('Unknown error during account deletion'),
+      success: false
+    };
   }
 };
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const signUp = async (email: string, password: string) => {
+  // Check if email is in cooldown period
+  const inCooldown = await checkEmailCooldown(email);
+  if (inCooldown) {
+    return {
+      data: null,
+      error: new Error('This email address cannot be used for registration at this time. Please try again later or contact support.')
+    };
+  }
+
   const { data, error } = await supabase.auth.signUp({
     email,
     password,

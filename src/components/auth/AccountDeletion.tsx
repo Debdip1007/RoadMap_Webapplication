@@ -25,21 +25,28 @@ export function AccountDeletion({ isOpen, onClose, userEmail }: AccountDeletionP
     setLoading(true);
 
     try {
-      await deleteUserAccount();
+      const result = await deleteUserAccount();
       
-      toast.success('Account deleted successfully');
+      if (result.error) {
+        console.error('Account deletion failed:', result.error);
+        toast.error(`Account deletion failed: ${result.error.message}`);
+        return;
+      } else {
+        toast.success(result.message || 'Account deleted successfully');
+        console.log('Account deletion successful:', result);
+      }
+      
+      // Close modal and redirect
       onClose();
       
+      // Small delay to ensure toast is visible before redirect
       setTimeout(() => {
         window.location.href = '/';
-      }, 1000);
+      }, 2000);
+      
     } catch (error) {
       console.error('Account deletion error:', error);
-      toast.success('Account deleted successfully');
-      onClose();
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 1000);
+      toast.error(error instanceof Error ? error.message : 'Failed to delete account');
     } finally {
       setLoading(false);
     }

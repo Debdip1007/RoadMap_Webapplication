@@ -6,6 +6,7 @@ import { GoogleAuth } from './GoogleAuth';
 import { PasswordReset } from './PasswordReset';
 import { TwoFactorVerification } from './TwoFactorVerification';
 import { signIn, signUp } from '../../lib/supabase';
+import { checkEmailCooldown } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 
 interface AuthFormProps {
@@ -36,6 +37,20 @@ export function AuthForm({ mode, onToggleMode }: AuthFormProps) {
     if (mode === 'signup' && password !== confirmPassword) {
       toast.error('Passwords do not match');
       return;
+    }
+    
+    // Check email cooldown for signup
+    if (mode === 'signup') {
+      try {
+        const inCooldown = await checkEmailCooldown(email);
+        if (inCooldown) {
+          toast.error('This email address is temporarily unavailable for registration. Please try again later or contact support.');
+          return;
+        }
+      } catch (error) {
+        console.error('Error checking email cooldown:', error);
+        // Continue with signup if cooldown check fails
+      }
     }
     
     setLoading(true);
